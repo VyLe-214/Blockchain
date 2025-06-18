@@ -1,9 +1,9 @@
 # Blockchain
 project nhóm
 ## Giải thích tính năng của smart contract
-### owner	Người triển khai hợp đồng (bệnh viện) có quyền thực hiện các thao tác nhạy cảm
-### onlyOwner modifier	Bảo vệ các chức năng chỉ cho phép bệnh viện thực hiện
-### PatientType enum	Phân loại bệnh nhân: Donor (người hiến máu) và Receiver (người nhận máu)
+- owner	Người triển khai hợp đồng (bệnh viện) có quyền thực hiện các thao tác nhạy cảm
+- onlyOwner modifier	Bảo vệ các chức năng chỉ cho phép bệnh viện thực hiện
+- PatientType enum	Phân loại bệnh nhân: Donor (người hiến máu) và Receiver (người nhận máu)
 ### Patient struct	Lưu trữ đầy đủ hồ sơ của bệnh nhân (gồm cả lịch sử giao dịch máu)
 ### BloodTransaction struct	Ghi lại chi tiết từng lần hiến hoặc nhận máu: ai hiến/nhận, thời gian, địa chỉ
 ### newPatient()	Thêm bệnh nhân mới, kèm kiểm tra không trùng Aadhar
