@@ -1,7 +1,6 @@
 # Blockchain
 project nhóm
-🧾 Giải thích tính năng của smart contract
-Tính năng	Giải thích
+#🧾 Giải thích tính năng của smart contract
 owner	Người triển khai hợp đồng (bệnh viện) có quyền thực hiện các thao tác nhạy cảm
 onlyOwner modifier	Bảo vệ các chức năng chỉ cho phép bệnh viện thực hiện
 PatientType enum	Phân loại bệnh nhân: Donor (người hiến máu) và Receiver (người nhận máu)
