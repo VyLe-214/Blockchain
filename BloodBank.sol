@@ -1,107 +1,118 @@
+
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.0;
 
 /**
  * @title BloodBank
- * @dev A smart contract for managing blood transactions and patient records in a blood bank.
+ * @dev A comprehensive smart contract for managing blood donations, quality, and distribution.
  */
 contract BloodBank {
-    // Contract owner (usually hospital)
-    // Nguoi trien khai hop dong (benh vien) co quyen thuc hien cac thao tac
+    // ==== Access Control ====
     address public owner;
 
-    constructor() {
-        //Gan bien owner bang dia chi vi cua nguoi trien khai hop dong
-        owner = msg.sender;
-    }
-
-    // Enum for patient type: Phan loai Donor (nguoi hien mau); receiver (nguoi nhan mau)
-    enum PatientType {
-        Donor,
-        Receiver
-    }
-
-    // Struct for blood transaction: Ghi lai tung lan hien mau (ai hien/nhan)
-    struct BloodTransaction {
-        PatientType patientType;
-        uint256 time;
-        address from;
-        address to;
-        uint256 volume; // so ml mau giao dich
-    }
-
-    // Struct for patient
-    /**
-    * @bloodGroup: nhom mau (A+, O-, AB+)
-    * @contact: so dien thoai lien hien
-    * @BloodTransaction: so lan hien mau
-    */
-    struct Patient {
-        string cccd;
-        string name;
-        uint256 age;
-        string bloodGroup;
-        string contact;
-        string homeAddress;
-        BloodTransaction[] bT;
-    }
-
-    // Patient records: luu tru va xuat du lieu
-    // Mapping tu cccd => bool (true/false):  Kiem tra xem benh nhan voi ma cccd da duoc dang ky hay chua.
-    Patient[] private PatientRecord;
-    mapping(string => uint256) private PatientRecordIndex;
-    mapping(string => bool) private cccdExists;
-
-    // Access modifier
     modifier onlyOwner() {
         require(msg.sender == owner, "Only the admin can perform this action");
         _;
     }
 
-    // Events: ghi nhan va gui thong bao
+    constructor() {
+        owner = msg.sender;
+        _initializeValidBloodGroups();
+    }
+
+    // ==== Enums ====
+    enum DonationKind { Voluntary, Paid }
+    enum BloodStatus { Valid, Used, Spoiled, Expired }
+
+    // ==== Structs ====
+    struct BloodTransaction {
+        uint256 time;
+        DonationKind kind;
+        uint256 volume;
+        address executor;
+    }
+
+    struct Patient {
+        string cccd;
+        string name;
+        uint256 age;
+        uint256 weight;
+        string bloodGroup;
+        string contact;
+        string homeAddress;
+        bool isActive;
+        BloodTransaction[] transactions;
+        uint256 totalVoluntaryDonation;
+    }
+
+    struct BloodUnit {
+        string bloodGroup;
+        string donorCccd;
+        uint256 volume;
+        uint256 collectedAt;
+        uint256 expiryTime;
+        uint256 storageTemp;
+        BloodStatus status;
+        string metadataHash;
+        string hospitalName;
+    }
+
+    // ==== Storage ====
+    mapping(string => Patient) private patients;
+    mapping(string => bool) private cccdExists;
+    mapping(string => bool) private validBloodGroups;
+    mapping(bytes32 => BloodUnit) public bloodUnits;
+    bytes32[] public bloodUnitIds;
+
+    // ==== Events ====
     event PatientAdded(bytes32 indexed cccdHash, string cccd, string name);
     event PatientUpdated(bytes32 indexed cccdHash, string cccd);
-    event BloodTransactionAdded(
-        bytes32 indexed cccdHash,
-         string cccd,
-        PatientType patientType,
-        address from,
-        address to
-    );
+    event BloodTransactionAdded(bytes32 indexed cccdHash, string cccd);
+    event BloodUnitCreated(bytes32 indexed unitId, string bloodGroup);
+    event BloodMarkedSpoiled(bytes32 indexed unitId);
+    event BloodDistributed(bytes32 indexed unitId, string hospital);
 
-    // Register a new patient
+    // ==== Initialization ====
+    function _initializeValidBloodGroups() internal {
+        validBloodGroups["A+"] = true;
+        validBloodGroups["A-"] = true;
+        validBloodGroups["B+"] = true;
+        validBloodGroups["B-"] = true;
+        validBloodGroups["AB+"] = true;
+        validBloodGroups["AB-"] = true;
+        validBloodGroups["O+"] = true;
+        validBloodGroups["O-"] = true;
+    }
+
+    // ==== Patient Management ====
     function newPatient(
         string memory _name,
         uint256 _age,
+        uint256 _weight,
         string memory _bloodGroup,
         string memory _contact,
         string memory _homeAddress,
         string memory _cccd
     ) external onlyOwner {
-        // onlyOwner kiem tra quyen truy cap
         require(!cccdExists[_cccd], "Patient already registered");
+        require(_age >= 18 && _age <= 60, "Age must be between 18 and 60");
+        require(_weight >= 45, "Weight must be at least 45kg");
+        require(validBloodGroups[_bloodGroup], "Invalid blood group");
 
-        uint256 index = PatientRecord.length;
-        /**
-        * @PatientRecord.push: Day them 1 phan tu vao cuoi mang PatientRecord
-        * p tu input se truyen vao ham newPatien
-        **/
-        PatientRecord.push();
-        Patient storage p = PatientRecord[index];
+        Patient storage p = patients[_cccd];
         p.name = _name;
         p.age = _age;
-        p.bloodGroup = _bloodGroup;
+        p.weight = _weight;
+        p.bloodGroup = _normalizeBloodGroup(_bloodGroup);
         p.contact = _contact;
         p.homeAddress = _homeAddress;
         p.cccd = _cccd;
+        p.isActive = true;
 
-        PatientRecordIndex[_cccd] = index;
-        cccdExists[_cccd] = true; // tranh trung lap
-
-        emit PatientAdded(keccak256(bytes(_cccd)), _cccd, _name); //thong bao benh nhan moi da dc them thanh cong
+        cccdExists[_cccd] = true;
+        emit PatientAdded(keccak256(bytes(_cccd)), _cccd, _name);
     }
 
-    // Update existing patient
     function updatePatient(
         string memory _cccd,
         string memory _name,
@@ -111,81 +122,180 @@ contract BloodBank {
         string memory _homeAddress
     ) external onlyOwner {
         require(cccdExists[_cccd], "Patient does not exist");
+        require(validBloodGroups[_bloodGroup], "Invalid blood group");
 
-        uint256 index = PatientRecordIndex[_cccd];
-        Patient storage p = PatientRecord[index];
+        Patient storage p = patients[_cccd];
         p.name = _name;
         p.age = _age;
-        p.bloodGroup = _bloodGroup;
+        p.bloodGroup = _normalizeBloodGroup(_bloodGroup);
         p.contact = _contact;
         p.homeAddress = _homeAddress;
 
         emit PatientUpdated(keccak256(bytes(_cccd)), _cccd);
     }
 
-    // Record a blood transaction
-    function bloodTransaction(
+    // ==== Blood Donation and Management ====
+    function donateBlood(
         string memory _cccd,
-        PatientType _type,
-        address _from,
-        address _to,
-        uint256 _volume
+        uint256 _volume,
+        uint256 _expiryDays,
+        uint256 _storageTemp,
+        DonationKind _kind,
+        string memory _metadataHash,
+        string memory _hospitalName
     ) external onlyOwner {
         require(cccdExists[_cccd], "Patient not found");
         require(_volume > 0, "Volume must be greater than 0");
 
-        uint256 index = PatientRecordIndex[_cccd];
+        //Tinh the tich toi da cho phep dua tren can nang (9ml/kg)
+        uint256 maxVolume = patients[_cccd].weight * 9;
+        require(_volume <= maxVolume, "Donation exceeds 9ml per kg body weight");
 
-        BloodTransaction memory txObj = BloodTransaction({
-            patientType: _type,
-            time: block.timestamp,
-            from: _from,
-            to: _to,
-            volume: _volume
+        require(_expiryDays <= 45, "Expiry exceeds max 45 days");
+        require(_storageTemp >= 4 && _storageTemp <= 8, "Storage temperature must be between 4 and 8 C");
+
+        Patient storage p = patients[_cccd];
+        require(p.isActive, "Inactive patient");
+
+        string memory group = _normalizeBloodGroup(p.bloodGroup);
+        bytes32 unitId = keccak256(abi.encodePacked(_cccd, block.timestamp, _volume));
+
+        uint256 expiry = block.timestamp + (_expiryDays * 1 days);
+
+
+        bloodUnits[unitId] = BloodUnit({
+            bloodGroup: group,
+            donorCccd: _cccd,
+            volume: _volume,
+            collectedAt: block.timestamp,
+            expiryTime: expiry,
+            storageTemp: _storageTemp,
+            status: BloodStatus.Valid,
+            metadataHash: _metadataHash,
+            hospitalName: _hospitalName
         });
+        bloodUnitIds.push(unitId);
 
-        PatientRecord[index].bT.push(txObj);// Gan giao dich vao lich su benh nhan
+        p.transactions.push(BloodTransaction({
+            time: block.timestamp,
+            kind: _kind,
+            volume: _volume,
+            executor: msg.sender
+        }));
 
-        emit BloodTransactionAdded(keccak256(bytes(_cccd)), _cccd, _type, _from, _to);
+        if (_kind == DonationKind.Voluntary) {
+            p.totalVoluntaryDonation += _volume;
+        }
+
+        emit BloodTransactionAdded(keccak256(bytes(_cccd)), _cccd);
+        emit BloodUnitCreated(unitId, group);
     }
-    
-    // Tong mau da hien cua mot benh nhan
-    function getTotalBloodDonated(string memory _cccd) external view returns (uint256 totalVolume) {
-         require(cccdExists[_cccd], "Patient not found");
 
-         uint256 index = PatientRecordIndex[_cccd];
-         Patient storage p = PatientRecord[index];
-         
-        for (uint256 i = 0; i < p.bT.length; i++) {
-            if (p.bT[i].patientType == PatientType.Donor) {
-            totalVolume += p.bT[i].volume;
+    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
+        bloodUnits[unitId].status = BloodStatus.Used;
+        bloodUnits[unitId].hospitalName = _hospital;
+        emit BloodDistributed(unitId, _hospital);
+    }
+
+    function markAsSpoiled(bytes32 unitId) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not valid");
+        bloodUnits[unitId].status = BloodStatus.Spoiled;
+        emit BloodMarkedSpoiled(unitId);
+    }
+
+    // ==== View Functions ====
+    function getPatientRecord(string memory _cccd) external view returns (
+        string memory name,
+        uint256 age,
+        string memory bloodGroup,
+        string memory contact,
+        string memory homeAddress,
+        uint256 totalDonation,
+        uint256 voluntaryDonation
+    ) {
+        require(cccdExists[_cccd], "Patient not found");
+        Patient storage p = patients[_cccd];
+
+        uint256 total = 0;
+        uint256 voluntary = 0;
+
+        for (uint256 i = 0; i < p.transactions.length; i++) {
+            total += p.transactions[i].volume;
+            if (p.transactions[i].kind == DonationKind.Voluntary) {
+                voluntary += p.transactions[i].volume;
+
             }
         }
-        return totalVolume;
+
+        return (
+            p.name,
+            p.age,
+            p.bloodGroup,
+            p.contact,
+            p.homeAddress,
+            total,
+            voluntary
+        );
     }
 
-    // View patient record
-    function getPatientRecord(string memory _cccd)
-        external
-        view
-        returns (Patient memory)
-    {
+    function getPatientTransactions(string memory _cccd, uint256 limit) external view returns (BloodTransaction[] memory) {
         require(cccdExists[_cccd], "Patient not found");
-        return PatientRecord[PatientRecordIndex[_cccd]];
+        BloodTransaction[] storage txs = patients[_cccd].transactions;
+        uint256 len = txs.length > limit ? limit : txs.length;
+
+        BloodTransaction[] memory result = new BloodTransaction[](len);
+        for (uint256 i = 0; i < len; i++) {
+            result[i] = txs[i];
+        }
+        return result;
     }
 
-    // View all patient records
-    function getAllRecord() external view returns (Patient[] memory) {
-        return PatientRecord;
+    function getBloodUnit(bytes32 unitId) external view returns (BloodUnit memory) {
+        return bloodUnits[unitId];
     }
 
-    // View all blood transactions for a patient
-    function getPatientTransactions(string memory _cccd)
-        external
-        view
-        returns (BloodTransaction[] memory)
-    {
-        require(cccdExists[_cccd], "Patient not found");
-        return PatientRecord[PatientRecordIndex[_cccd]].bT;
+    function getAllBloodUnitIds() external view returns (bytes32[] memory) {
+        return bloodUnitIds;
+    }
+
+    function getBloodUnitsNearExpiry(uint256 withinDays) external view returns (bytes32[] memory) {
+        uint256 threshold = block.timestamp + withinDays * 1 days;
+        uint256 count;
+
+        for (uint256 i = 0; i < bloodUnitIds.length; i++) {
+            if (bloodUnits[bloodUnitIds[i]].expiryTime <= threshold &&
+                bloodUnits[bloodUnitIds[i]].status == BloodStatus.Valid) {
+                count++;
+            }
+        }
+
+        bytes32[] memory result = new bytes32[](count);
+        uint256 index;
+        for (uint256 i = 0; i < bloodUnitIds.length; i++) {
+            if (bloodUnits[bloodUnitIds[i]].expiryTime <= threshold &&
+                bloodUnits[bloodUnitIds[i]].status == BloodStatus.Valid) {
+                result[index++] = bloodUnitIds[i];
+            }
+        }
+        return result;
+    }
+
+    function getInventoryByGroup(string memory bloodGroup) external view returns (uint256 totalVolume) {
+        string memory group = _normalizeBloodGroup(bloodGroup);
+        require(validBloodGroups[group], "Invalid blood group");
+
+        for (uint256 i = 0; i < bloodUnitIds.length; i++) {
+            BloodUnit storage unit = bloodUnits[bloodUnitIds[i]];
+            if (keccak256(bytes(unit.bloodGroup)) == keccak256(bytes(group)) &&
+                unit.status == BloodStatus.Valid) {
+                totalVolume += unit.volume;
+            }
+        }
+    }
+
+    // ==== Internal Utilities ====
+    function _normalizeBloodGroup(string memory input) internal pure returns (string memory) {
+        return input; // Placeholder for normalization logic like trimming or uppercasing
     }
 }
