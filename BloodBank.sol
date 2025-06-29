@@ -56,6 +56,14 @@ contract BloodBank {
         string metadataHash;
         string hospitalName;
     }
+    struct TransfusionRecord {
+        bytes32 unitId;
+        string recipientName;
+        uint256 recipientAge;
+        string recipientBloodGroup;
+        string hospitalName;
+        uint256 transfusedAt;
+    }
 
     // ==== Storage ====
     mapping(string => Patient) private patients;
@@ -63,6 +71,8 @@ contract BloodBank {
     mapping(string => bool) private validBloodGroups;
     mapping(bytes32 => BloodUnit) public bloodUnits;
     bytes32[] public bloodUnitIds;
+    TransfusionRecord[] public transfusionHistory;
+
 
     // ==== Events ====
     event PatientAdded(bytes32 indexed cccdHash, string cccd, string name);
@@ -71,6 +81,7 @@ contract BloodBank {
     event BloodUnitCreated(bytes32 indexed unitId, string bloodGroup);
     event BloodMarkedSpoiled(bytes32 indexed unitId);
     event BloodDistributed(bytes32 indexed unitId, string hospital);
+    event BloodTransfused(bytes32 indexed unitId, string recipientName, string hospitalName);
 
     // ==== Initialization ====
     function _initializeValidBloodGroups() internal {
@@ -134,6 +145,45 @@ contract BloodBank {
         emit PatientUpdated(keccak256(bytes(_cccd)), _cccd);
     }
 
+    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
+        bloodUnits[unitId].status = BloodStatus.Used;
+        bloodUnits[unitId].hospitalName = _hospital;
+        emit BloodDistributed(unitId, _hospital);
+    }
+
+    function recordTransfusion(
+        bytes32 unitId,
+        string memory recipientName,
+        uint256 recipientAge,
+        string memory recipientBloodGroup
+    ) external onlyOwner {
+        BloodUnit storage unit = bloodUnits[unitId];
+        require(unit.status == BloodStatus.Used, "Blood must be marked as Used first");
+
+        transfusionHistory.push(TransfusionRecord({
+            unitId: unitId,
+            recipientcccd: recipientcccd,
+            recipientName: recipientName,
+            recipientAge: recipientAge,
+            recipientBloodGroup: _normalizeBloodGroup(recipientBloodGroup),
+            hospitalName: unit.hospitalName,
+            transfusedAt: block.timestamp
+        }));
+
+        emit BloodTransfused(unitId, recipientName, unit.hospitalName);
+    }
+
+    function getAllTransfusions() external view returns (TransfusionRecord[] memory) {
+        return transfusionHistory;
+    }
+
+    function markAsSpoiled(bytes32 unitId) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not valid");
+        bloodUnits[unitId].status = BloodStatus.Spoiled;
+        emit BloodMarkedSpoiled(unitId);
+    }
+
     // ==== Blood Donation and Management ====
     function donateBlood(
         string memory _cccd,
@@ -191,18 +241,6 @@ contract BloodBank {
         emit BloodUnitCreated(unitId, group);
     }
 
-    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
-        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
-        bloodUnits[unitId].status = BloodStatus.Used;
-        bloodUnits[unitId].hospitalName = _hospital;
-        emit BloodDistributed(unitId, _hospital);
-    }
-
-    function markAsSpoiled(bytes32 unitId) external onlyOwner {
-        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not valid");
-        bloodUnits[unitId].status = BloodStatus.Spoiled;
-        emit BloodMarkedSpoiled(unitId);
-    }
 
     // ==== View Functions ====
     function getPatientRecord(string memory _cccd) external view returns (
@@ -237,18 +275,6 @@ contract BloodBank {
             total,
             voluntary
         );
-    }
-
-    function getPatientTransactions(string memory _cccd, uint256 limit) external view returns (BloodTransaction[] memory) {
-        require(cccdExists[_cccd], "Patient not found");
-        BloodTransaction[] storage txs = patients[_cccd].transactions;
-        uint256 len = txs.length > limit ? limit : txs.length;
-
-        BloodTransaction[] memory result = new BloodTransaction[](len);
-        for (uint256 i = 0; i < len; i++) {
-            result[i] = txs[i];
-        }
-        return result;
     }
 
     function getBloodUnit(bytes32 unitId) external view returns (BloodUnit memory) {
