@@ -47,7 +47,7 @@ contract BloodBank {
 
     struct BloodUnit {
         string bloodGroup;
-        string donorCccd;
+        string donorId;
         uint256 volume;
         uint256 collectedAt;
         uint256 expiryTime;
@@ -58,6 +58,7 @@ contract BloodBank {
     }
     struct TransfusionRecord {
         bytes32 unitId;
+        string recipientcccd;
         string recipientName;
         uint256 recipientAge;
         string recipientBloodGroup;
@@ -145,45 +146,6 @@ contract BloodBank {
         emit PatientUpdated(keccak256(bytes(_cccd)), _cccd);
     }
 
-    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
-        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
-        bloodUnits[unitId].status = BloodStatus.Used;
-        bloodUnits[unitId].hospitalName = _hospital;
-        emit BloodDistributed(unitId, _hospital);
-    }
-
-    function recordTransfusion(
-        bytes32 unitId,
-        string memory recipientName,
-        uint256 recipientAge,
-        string memory recipientBloodGroup
-    ) external onlyOwner {
-        BloodUnit storage unit = bloodUnits[unitId];
-        require(unit.status == BloodStatus.Used, "Blood must be marked as Used first");
-
-        transfusionHistory.push(TransfusionRecord({
-            unitId: unitId,
-            recipientcccd: recipientcccd,
-            recipientName: recipientName,
-            recipientAge: recipientAge,
-            recipientBloodGroup: _normalizeBloodGroup(recipientBloodGroup),
-            hospitalName: unit.hospitalName,
-            transfusedAt: block.timestamp
-        }));
-
-        emit BloodTransfused(unitId, recipientName, unit.hospitalName);
-    }
-
-    function getAllTransfusions() external view returns (TransfusionRecord[] memory) {
-        return transfusionHistory;
-    }
-
-    function markAsSpoiled(bytes32 unitId) external onlyOwner {
-        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not valid");
-        bloodUnits[unitId].status = BloodStatus.Spoiled;
-        emit BloodMarkedSpoiled(unitId);
-    }
-
     // ==== Blood Donation and Management ====
     function donateBlood(
         string memory _cccd,
@@ -215,7 +177,7 @@ contract BloodBank {
 
         bloodUnits[unitId] = BloodUnit({
             bloodGroup: group,
-            donorCccd: _cccd,
+            donorId: _cccd,
             volume: _volume,
             collectedAt: block.timestamp,
             expiryTime: expiry,
@@ -239,6 +201,42 @@ contract BloodBank {
 
         emit BloodTransactionAdded(keccak256(bytes(_cccd)), _cccd);
         emit BloodUnitCreated(unitId, group);
+    }
+
+    function markAsSpoiled(bytes32 unitId) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not valid");
+        bloodUnits[unitId].status = BloodStatus.Spoiled;
+        emit BloodMarkedSpoiled(unitId);
+    }
+
+    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
+        bloodUnits[unitId].status = BloodStatus.Used;
+        bloodUnits[unitId].hospitalName = _hospital;
+        emit BloodDistributed(unitId, _hospital);
+    }
+
+    function recordTransfusion(
+        bytes32 unitId,
+        string memory recipientName,
+        uint256 recipientAge,
+        string memory recipientBloodGroup,
+        string memory recipientCccd
+    ) external onlyOwner {
+        BloodUnit storage unit = bloodUnits[unitId];
+        require(unit.status == BloodStatus.Used, "Blood must be marked as Used first");
+
+        transfusionHistory.push(TransfusionRecord({
+            unitId: unitId,
+            recipientcccd: recipientCccd,
+            recipientName: recipientName,
+            recipientAge: recipientAge,
+            recipientBloodGroup: _normalizeBloodGroup(recipientBloodGroup),
+            hospitalName: unit.hospitalName,
+            transfusedAt: block.timestamp
+        }));
+
+        emit BloodTransfused(unitId, recipientName, unit.hospitalName);
     }
 
 
@@ -283,6 +281,10 @@ contract BloodBank {
 
     function getAllBloodUnitIds() external view returns (bytes32[] memory) {
         return bloodUnitIds;
+    }
+
+    function getAllTransfusions() external view returns (TransfusionRecord[] memory) {
+        return transfusionHistory;
     }
 
     function getBloodUnitsNearExpiry(uint256 withinDays) external view returns (bytes32[] memory) {
