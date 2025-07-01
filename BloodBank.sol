@@ -209,19 +209,13 @@ contract BloodBank {
         emit BloodMarkedSpoiled(unitId);
     }
 
-    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
-        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
-        bloodUnits[unitId].status = BloodStatus.Used;
-        bloodUnits[unitId].hospitalName = _hospital;
-        emit BloodDistributed(unitId, _hospital);
-    }
 
     function recordTransfusion(
         bytes32 unitId,
+        string memory recipientCccd,
         string memory recipientName,
         uint256 recipientAge,
-        string memory recipientBloodGroup,
-        string memory recipientCccd
+        string memory recipientBloodGroup
     ) external onlyOwner {
         BloodUnit storage unit = bloodUnits[unitId];
         require(unit.status == BloodStatus.Used, "Blood must be marked as Used first");
