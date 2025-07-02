@@ -98,13 +98,13 @@ contract BloodBank {
 
     // ==== Patient Management ====
     function newPatient(
+        string memory _cccd,
         string memory _name,
         uint256 _age,
         uint256 _weight,
         string memory _bloodGroup,
         string memory _contact,
-        string memory _homeAddress,
-        string memory _cccd
+        string memory _homeAddress
     ) external onlyOwner {
         require(!cccdExists[_cccd], "Patient already registered");
         require(_age >= 18 && _age <= 60, "Age must be between 18 and 60");
@@ -149,10 +149,10 @@ contract BloodBank {
     // ==== Blood Donation and Management ====
     function donateBlood(
         string memory _cccd,
-        uint256 _volume,
-        uint256 _expiryDays,
-        uint256 _storageTemp,
         DonationKind _kind,
+        uint256 _volume,
+        uint256 _storageTemp,
+        uint256 _expiryDays,
         string memory _metadataHash,
         string memory _hospitalName
     ) external onlyOwner {
@@ -208,7 +208,13 @@ contract BloodBank {
         bloodUnits[unitId].status = BloodStatus.Spoiled;
         emit BloodMarkedSpoiled(unitId);
     }
-
+    
+    function distributeBlood(bytes32 unitId, string memory _hospital) external onlyOwner {
+        require(bloodUnits[unitId].status == BloodStatus.Valid, "Not available");
+        bloodUnits[unitId].status = BloodStatus.Used;
+        bloodUnits[unitId].hospitalName = _hospital;
+        emit BloodDistributed(unitId, _hospital);
+    }
 
     function recordTransfusion(
         bytes32 unitId,
