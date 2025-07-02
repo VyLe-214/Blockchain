@@ -276,6 +276,17 @@ contract BloodBank {
             voluntary
         );
     }
+    function getPatientPublicInfo(string memory _cccd) external view returns (
+        string memory name,
+        uint256 age,
+        string memory bloodGroup,
+        string memory contact,
+        string memory homeAddress
+    ) {
+        require(cccdExists[_cccd], "Patient not found");
+        Patient storage p = patients[_cccd];
+        return (p.name, p.age, p.bloodGroup, p.contact, p.homeAddress);
+    }  
 
     function getBloodUnit(bytes32 unitId) external view returns (BloodUnit memory) {
         return bloodUnits[unitId];
