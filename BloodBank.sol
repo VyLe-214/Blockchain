@@ -323,9 +323,6 @@ contract BloodBank {
             }
         }
     }
-    function getAllCccds() external view returns (string[] memory) {
-        return patientCccds;
-    }
 
     // ==== Internal Utilities ====
     function _normalizeBloodGroup(string memory input) internal pure returns (string memory) {
