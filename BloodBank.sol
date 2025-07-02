@@ -69,6 +69,7 @@ contract BloodBank {
     // ==== Storage ====
     mapping(string => Patient) private patients;
     mapping(string => bool) private cccdExists;
+    string[] public patientCccds;
     mapping(string => bool) private validBloodGroups;
     mapping(bytes32 => BloodUnit) public bloodUnits;
     bytes32[] public bloodUnitIds;
@@ -122,6 +123,7 @@ contract BloodBank {
         p.isActive = true;
 
         cccdExists[_cccd] = true;
+        patientCccds.push(_cccd);
         emit PatientAdded(keccak256(bytes(_cccd)), _cccd, _name);
     }
 
@@ -320,6 +322,9 @@ contract BloodBank {
                 totalVolume += unit.volume;
             }
         }
+    }
+    function getAllCccds() external view returns (string[] memory) {
+        return patientCccds;
     }
 
     // ==== Internal Utilities ====
