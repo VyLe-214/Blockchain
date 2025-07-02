@@ -285,7 +285,7 @@ contract BloodBank {
     ) {
         require(cccdExists[_cccd], "Patient not found");
         Patient storage p = patients[_cccd];
-        return (p.name, p.age, p.bloodGroup, p.contact, p.homeAddress);
+        return (p.name, p.age, p.bloodGroup, p.contact, p.homeAddress, total, voluntary);
     }  
 
     function getBloodUnit(bytes32 unitId) external view returns (BloodUnit memory) {
