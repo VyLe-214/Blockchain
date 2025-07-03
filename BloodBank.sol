@@ -160,7 +160,7 @@ contract BloodBank {
         uint256 _expiryDays,
         string memory _metadataHash,
         string memory _hospitalName
-    ) external onlyRole(Role.Donor) {
+    ) external onlyOwner {
         require(cccdExists[_cccd], "Patient not found");
         Patient storage p = patients[_cccd];
         require(p.wallet == msg.sender, "Can only donate for own CCCD");
