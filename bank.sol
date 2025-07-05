@@ -4,28 +4,35 @@ pragma solidity ^0.8.0;
 contract BloodDonationSystem {
 
     enum BloodStatus { Stored, Dispatched }
-    enum Role { None, Donor, Hospital }
 
-    mapping(address => Role) public roles;
     address public owner;
+    mapping(address => bool) public hospitalWhitelist;
 
-    modifier onlyRole(Role _role) {
-        require(roles[msg.sender] == _role, "Access denied: wrong role");
+    modifier onlyAdmin() {
+        require(msg.sender == owner, "Only admin");
         _;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
+    modifier onlyHospital() {
+        require(hospitalWhitelist[msg.sender], "Only hospital");
+        _;
+    }
+
+    modifier onlyDonor() {
+        require(!hospitalWhitelist[msg.sender] && msg.sender != owner, "Only donor");
         _;
     }
 
     constructor() {
         owner = msg.sender;
-        roles[msg.sender] = Role.Hospital;
-    }
 
-    function setRole(address user, Role _role) public onlyOwner {
-        roles[user] = _role;
+        hospitalWhitelist[0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2] = true;
+        hospitalWhitelist[0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db] = true;
+    }
+    
+    function addHospital(address _addr) public onlyAdmin {
+        require(!hospitalWhitelist[_addr], "Already a hospital");
+        hospitalWhitelist[_addr] = true;
     }
 
     struct Donation {
@@ -78,7 +85,7 @@ contract BloodDonationSystem {
         string memory _bloodType,
         uint _volume,
         string memory _location
-    ) public onlyRole(Role.Donor) {
+    ) public onlyDonor {
         require(_volume > 0, "Invalid blood volume");
 
         uint timestamp = block.timestamp;
@@ -114,7 +121,7 @@ contract BloodDonationSystem {
         string memory _hospital,
         string memory _bloodType,
         uint _volume
-    ) public onlyRole(Role.Hospital) {
+    ) public onlyHospital {
         require(_volume > 0, "Invalid volume");
 
         uint remaining = _volume;
