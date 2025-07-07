@@ -32,16 +32,28 @@ contract BloodDonationSystem {
         hospitalNames[0x583031D1113aD414F02576BD6afaBfb302140225] =  "\u0042\u1EC7nh vi\u1EC7n Th\u1EE7 \u0110\u1EE9c";
 
         hospitalWhitelist[0xdD870fA1b7C4700F2BD7f44238821C26f7392148] = true;
-        hospitalNames[0xdD870fA1b7C4700F2BD7f44238821C26f7392148] = "\u0042\u1EC7nh vi\u1EC7n T\u1EA5n Ph\u1EE9-------";
+        hospitalNames[0xdD870fA1b7C4700F2BD7f44238821C26f7392148] = "B\u1ec7nh vi\u1ec7n qu\u1eadn 9";
     }
 
+    function addHospital(address hospitalAddress, string memory hospitalName) public onlyAdmin {
+        hospitalWhitelist[hospitalAddress] = true;
+        hospitalNames[hospitalAddress] = hospitalName;
+    }
 
-    // Các struct và sự kiện như trước
+    struct PendingDonation {
+        string bloodType;
+        uint volume;
+        uint donationDate;
+        string location;
+        bool exists;
+    }
+
     struct Donation {
         string bloodType;
         uint volume;
         uint timestamp;
         string location;
+        bool confirmedByAdmin; 
     }
 
     struct BloodUnit {
@@ -72,55 +84,95 @@ contract BloodDonationSystem {
         bool fulfilled;
     }
 
+    mapping(string => PendingDonation) public pendingDonations;
     mapping(string => Donation[]) private donationHistory;
     BloodUnit[] private bloodUnits;
     BloodRequest[] public bloodRequests;
 
     mapping(string => uint) private bloodInventory;
     string[] private bloodTypesList;
+    string[] public validBloodTypes = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
     mapping(string => bool) private bloodTypeExists;
 
     event BloodDonated(string cccd, string bloodType, uint volume, string location, uint timestamp);
     event BloodRequested(string hospital, string bloodType, uint volume, bool fulfilled);
     event BloodDispatched(string cccd, string hospital, uint volume);
 
-    function donateBlood(
+    function registerDonation(
         string memory _cccd,
         string memory _bloodType,
         uint _volume,
+        uint _donationDate,
         string memory _location
     ) public onlyDonor {
         require(_volume > 0, "Invalid blood volume");
 
-        uint timestamp = block.timestamp;
+        require(bytes(_cccd).length == 12, "CCCD must be 12 digits");
+        for (uint i = 0; i < 12; i++) {
+            require(bytes(_cccd)[i] >= '0' && bytes(_cccd)[i] <= '9', "CCCD must be all digits");
+        }
+        
+        bool isValidBloodType = false;
+        for (uint i = 0; i < validBloodTypes.length; i++) {
+            if (keccak256(bytes(_bloodType)) == keccak256(bytes(validBloodTypes[i]))) {
+                isValidBloodType = true;
+                break;
+            }
+        }
+        require(isValidBloodType, "Invalid blood type");
 
-        donationHistory[_cccd].push(Donation({
+        require(!pendingDonations[_cccd].exists, "Already registered");
+        
+        pendingDonations[_cccd] = PendingDonation({
             bloodType: _bloodType,
             volume: _volume,
-            timestamp: timestamp,
-            location: _location
-        }));
+            donationDate: _donationDate,
+            location: _location,
+            exists: true
+        });
+    }
 
+    // Bước 2: Admin hoặc bệnh viện xác nhận donation và nhập kho máu
+    function confirmDonation(string memory _cccd) public onlyAdmin {
+        require(pendingDonations[_cccd].exists, "No pending donation");
+
+        PendingDonation memory p = pendingDonations[_cccd];
+        
+        // Đưa donation vào bloodUnits
         bloodUnits.push(BloodUnit({
             cccd: _cccd,
-            bloodType: _bloodType,
-            volume: _volume,
+            bloodType: p.bloodType,
+            volume: p.volume,
             status: BloodStatus.Stored,
-            hospital: "",
-            donatedAt: timestamp,
+            hospital: hospitalNames[msg.sender], 
+            donatedAt: block.timestamp,
             dispatchedAt: 0,
-            location: _location
+            location: p.location
         }));
 
-        bloodInventory[_bloodType] += _volume;
-
-        if (!bloodTypeExists[_bloodType]) {
-            bloodTypeExists[_bloodType] = true;
-            bloodTypesList.push(_bloodType);
+        // Cập nhật inventory
+        if (!bloodTypeExists[p.bloodType]) {
+            bloodTypesList.push(p.bloodType);  // Thêm loại máu mới vào danh sách
+            bloodTypeExists[p.bloodType] = true;  // Đánh dấu rằng loại máu này đã tồn tại
         }
 
-        emit BloodDonated(_cccd, _bloodType, _volume, _location, timestamp);
+        bloodInventory[p.bloodType] += p.volume;
+
+        donationHistory[_cccd].push(Donation({
+            bloodType: p.bloodType,
+            volume: p.volume,
+            timestamp: block.timestamp,
+            location: p.location,
+            confirmedByAdmin: true  // Đánh dấu là đã được xác nhận
+        }));
+
+
+        // Xóa donation khỏi pendingDonations sau khi xác nhận
+        delete pendingDonations[_cccd];
+        
+        emit BloodDonated(_cccd, p.bloodType, p.volume, p.location, block.timestamp);
     }
+
 
     function requestBlood(
         string memory _bloodType,
@@ -219,7 +271,7 @@ contract BloodDonationSystem {
         return results;
     }
 
-     function getBloodJourney(string memory _cccd) public view returns (
+    function getBloodJourney(string memory _cccd) public view returns (
         string[] memory bloodTypes,
         uint[] memory volumes,
         uint[] memory donatedAts,
@@ -251,38 +303,6 @@ contract BloodDonationSystem {
                 dispatchedAts[index] = bloodUnits[i].dispatchedAt;
                 hospitals[index] = bloodUnits[i].hospital;
                 index++;
-            }
-        }
-
-        // Sort the records by donatedAt (ngày hiến) in ascending order
-        for (uint i = 0; i < count; i++) {
-            for (uint j = i + 1; j < count; j++) {
-                if (donatedAts[i] > donatedAts[j]) {
-                    // Swap values
-                    uint tempTimestamp = donatedAts[i];
-                    donatedAts[i] = donatedAts[j];
-                    donatedAts[j] = tempTimestamp;
-
-                    string memory tempBloodType = bloodTypes[i];
-                    bloodTypes[i] = bloodTypes[j];
-                    bloodTypes[j] = tempBloodType;
-
-                    uint tempVolume = volumes[i];
-                    volumes[i] = volumes[j];
-                    volumes[j] = tempVolume;
-
-                    string memory tempLocation = locations[i];
-                    locations[i] = locations[j];
-                    locations[j] = tempLocation;
-
-                    uint tempDispatchedAt = dispatchedAts[i];
-                    dispatchedAts[i] = dispatchedAts[j];
-                    dispatchedAts[j] = tempDispatchedAt;
-
-                    string memory tempHospital = hospitals[i];
-                    hospitals[i] = hospitals[j];
-                    hospitals[j] = tempHospital;
-                }
             }
         }
 
